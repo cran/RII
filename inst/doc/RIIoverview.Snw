@@ -1,0 +1,136 @@
+\documentclass[a4paper]{article}
+\usepackage[round,authoryear]{natbib}
+
+%\VignetteIndexEntry{An overview of the RII package}
+
+\topmargin -3mm
+\headheight 0mm
+\headsep 0mm
+\textheight 240mm
+\textwidth 155mm
+\oddsidemargin 2mm
+\evensidemargin 2mm
+
+\bibliographystyle{natbka}
+
+\begin{document}
+
+\title{Estimating the Relative Index of Inequality in \emph{R}}
+\author{Jamie C. Sergeant\\
+        Nuffield College, University of Oxford, UK\\
+        \\
+        {\tt jamie.sergeant@nuffield.oxford.ac.uk}}
+\maketitle
+
+\section{Introduction}
+
+This paper is a brief guide to help users exploit the \emph{R} add-on package \texttt{RII}.  It is not designed to provide an in depth discussion of relative index of inequality estimation, nor to provide arguments in favour of using one method of estimation over others.  For more detail on the estimation method implemented in the package and described in this paper, and for more detail on relative index of inequality estimation in general, see \cite{serg:firt}. 
+
+The relative index of inequality (RII) is used to compare rates of incidence, usually of death or disease, between those with lowest and highest socio-economic status.  Suppose that every individual in some population of interest has a socio-economic rank $x$, scaled to range between 0 (the lowest) and 1 (the highest) and that the rate of incidence of the outcome of interest (per unit exposure) is $f(x)$ for individuals of social rank $x$.  The RII is defined as $f(0)/f(1)$, the ratio of incidence rates for the (often notional) pair of individuals at the very bottom and top of the socio-economic scale.  In practice $f(x)$ is unknown and must be estimated from available data, where individuals are typically categorized into $k$ ordered social classes so that $x$ is interval-censored.
+
+\section{The Model}
+
+As well as categorized into $k$ social classes, the population under study may also be partitioned into $l$ groups which represent different levels of some standardizing variable.  For example, the standardizing variable could be age and the $l$ groups could be the age of the individuals under study in, say, five or ten year intervals.  Without loss of generality, assume that age is present as a standardizing variable.  Also, for ease of exposition, assume that the outcome of interest is death.
+
+Suppose that the amount of exposure in age group $j$ within social class $i$ is $t_{ij}$, and that $d_{ij}$ deaths are observed in this class/group intersection during the period under study.  Here $t_{ij}$ could represent, for example, the number of person-years at risk, the mid-study period population or the number of individuals at risk at the start of the study period.  The death rate for an individual of social rank $x$ and in age group $j$ is modelled as $f(x)\exp(\beta_j)$, allowing the death rate to vary multiplicatively between age groups.  With this development the RII is still meaningfully defined as $f(0)/f(1)$; the ratio of death rates for individuals in the same age group and at opposite ends of the social scale.  Setting $\beta_1 \equiv 0$ gives a baseline group for comparative purposes.
+
+The number of deaths in each class/age combination is modelled as a Poisson random variable with mean equal to the average value of the age-specific death rate on that class.  An estimate of $f(x)$ as a natural cubic spline is obtained by maximizing a penalized log likelihood arising from this Poisson formulation, with a smoothing parameter, $\lambda \geq 0$, controlling how severely roughness in the estimate is penalized.  Maximization of the penalized log likelihood takes place over the $k$ coefficients that specify the spline $f(x)$ and the $l-1$ age parameters $\beta_2,\ldots,\beta_l$.
+
+\subsection{Example}
+
+The dataset \texttt{LSDeaths} included with the \texttt{RII} package is taken from \cite{serg:firt} and contains data from the UK Office for National Statistics Longitudinal Study (LS).  It is a dataframe with 24 rows, giving the number of males dead at the end of observation and at risk at the start of observation in six social classes and four age groups for the observation period 1996 to 2000:
+
+<<>>=
+library(RII)
+data(LSDeaths)
+LSDeaths
+
+@
+Social class ranges from V (the lowest) to I (the highest) and was recorded, together with age, at the 1991 UK census.  To estimate the RII for these data it is first necessary to produce cross-tabulations by social class and age:
+
+<<>>=
+LSdead <- xtabs(Deaths ~ class + age, data = LSDeaths)
+LSatrisk <- xtabs(AtRisk ~ class + age, data = LSDeaths)
+LSdead
+LSatrisk
+
+@
+Now estimate the RII using a value of the smoothing parameter of 1 with the function \texttt{RII}.
+
+<<>>=
+LSmodel1 <- RII(LSdead, LSatrisk, loglambda = 0)
+LSmodel1
+
+@
+Note that the argument \texttt{loglambda = 0} rather than \texttt{loglambda = 1} is supplied as \texttt{loglambda} is the log of the value of the smoothing parameter $\lambda$.  To fit the model with a smoothing parameter of 0, specify \texttt{loglambda = -Inf}:
+
+<<>>=
+LSmodel2 <- RII(LSdead, LSatrisk, loglambda = -Inf)
+LSmodel2
+
+@
+Setting \texttt{loglambda = Inf} will induce a linear fit and hence the component \texttt{par} of the model, instead of being a vector of $k$ spline coefficients, will be a vector of length two giving the intercept and gradient of the linear fit:
+
+<<>>=
+LSmodel3 <- RII(LSdead, LSatrisk, loglambda = Inf)
+LSmodel3$par
+
+@
+\section{Choosing the smoothing parameter}
+
+So far it has been assumed that a value of the smoothing parameter has been provided.  In practice it is rarely obvious what value to use and so the function \texttt{RII} includes a data-driven mechanism for choosing a single `optimum' value.  This value is chosen by cross-validation.  However, for the function to be able to find the value of $\lambda$ which minimizes the cross-validation score, it must be supplied with a region in which to begin the search.  This is where the function \texttt{RII.CVplot} comes in.  Given a vector of values of $\log(\lambda)$, \texttt{RII.CVplot} will evaluate the cross-validation score at each value and plot the results.  For example, with the \texttt{LSDeaths} data it appears that the value of $\log(\lambda)$ which minimizes the cross-validation score is in $[5,10]$:
+
+\begin{center}
+<<fig=TRUE>>=
+RII.CVplot(LSdead, LSatrisk, loglambda = seq(-2,18,len=21))
+@
+\end{center}
+
+Hence, in light of this, a suitable value of the argument \texttt{grid} can be supplied to \texttt{RII} to localize the search for an optimum $\lambda$.  \texttt{RII} takes the element of \texttt{grid} which produces the smallest value of the cross-validation score as the starting value for optimization over $\log(\lambda)$.  The best value of $\log(\lambda)$ found is returned as the component \texttt{loglambda} of the fitted model:
+
+<<>>=
+LSmodel4 <- RII(LSdead, LSatrisk, grid = seq(5,10,len=6))
+LSmodel4$loglambda
+LSmodel4
+
+@
+\section{Viewing results}
+
+A method for the generic function \texttt{plot()} is provided for objects of class \texttt{RII}.  For a specified age group, the empirical death rate is plotted together with the fitted rate.  The standard graphical parameters can be exploited to produce attractive plots that illustrate the model in each age group:
+
+\begin{center}
+<<fig=TRUE>>=
+par(mfrow=c(2,2))
+plot(LSmodel4, group = "25-34", main = "(a) age group 25-34")
+plot(LSmodel4, group = "35-44", main = "(b) age group 35-44")
+plot(LSmodel4, group = "45-54", main = "(c) age group 45-54")
+plot(LSmodel4, group = "55-64", main = "(d) age group 55-64") 
+@
+\end{center}
+
+The age parameters $\beta_1,\ldots,\beta_l$ are the component \texttt{group.effects} of the model.  Taking their exponential gives the fitted death rate for each group relative to the first group (recall that $\beta_1 \equiv 0$):
+
+<<>>=
+exp(LSmodel4$group.effects)
+@
+
+\section{Standard errors}
+
+The \texttt{var} and \texttt{var.log} components of the fitted model give delta method approximations of the variance of the RII estimate and the variance of the log of the RII estimate respectively.  However, these estimates are produced by ignoring the roughness penalty part of the penalized log likelihood and so should be treated as first approximations only.  A better way to produce a standard error is by bootstrap methods.  With the argument \texttt{se = TRUE} a bootstrap estimate of the standard error in the log of RII estimate is produced using \texttt{B} bootstrap samples.  This can then be compared with the `rough and ready' delta method approximation:
+
+<<>>=
+LSmodel5 <- RII(LSdead, LSatrisk, loglambda = LSmodel4$loglambda, se = TRUE, B = 1000)
+LSmodel5$se
+sqrt(LSmodel5$var.log)
+@
+
+Note that the specified \texttt{loglambda}, in this case the optimum value for the \texttt{LSDeaths} dataset, is used with each bootstrap dataset.  This is unsatisfactory.  Truer to the idea of the bootstrap is to search for a different optimum smoothing parameter for each dataset, which is done by supplying the argument \texttt{grid} rather than \texttt{loglambda} to \texttt{RII}.  However, choosing a single \texttt{grid} suitable for all of the $B$ bootstrap datasets plus the original data is not straightforward.  Such a \texttt{grid} should allow the global minimum of the cross-validation score to be found for each dataset.  With a satisfactory \texttt{grid} supplied, producing the standard error estimate with only a moderate value of \texttt{B}, e.g. 100 or 1000, can take a very long time.
+
+\bibliography{RII}
+
+@
+\end{document}
+
+
+
+

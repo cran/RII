@@ -1,0 +1,6 @@
+import(splines)
+export(RII, RII.CVplot)
+S3method(plot, RII)
+S3method(print, RII)
+S3method(summary, RII)
+S3method(print, summary.RII)
